@@ -1,0 +1,82 @@
+# IDisposable Leak Analyzer specific .gitignore
+
+# Visual Studio files
+.vs/
+*.user
+*.suo
+
+# Build results
+bin/
+obj/
+out/
+
+# Configuration and output specific to this project
+OUTPUT/
+*.csv
+*.config.user
+
+# Rider files
+.idea/
+*.sln.iml
+
+# Visual Studio Code files
+.vscode/
+
+# Resharper files
+_ReSharper*/
+*.DotSettings.user
+
+# Test results
+TestResults/
+*.trx
+
+# NuGet Packages
+*.nupkg
+packages/
+
+# Logs
+*.log
+
+# User-specific files
+*.rsuser
+*.userprefs
+
+# Mac files
+.DS_Store
+
+# Windows files
+Thumbs.db
+
+# Other build artifacts
+*.pdb
+*.mdb
+
+# Publish
+publish/
+
+# MSBuild Binary and Structured Log
+*.binlog
+
+# Coverage files
+coverage/
+*.coverage
+*.coveragexml
+
+# Temporary files
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*.backup
+
+# SQLite databases
+*.db
+*.sqlite
+
+# Env files
+.env
+
+
+# Demo files
+Demos/
