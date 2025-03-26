@@ -80,3 +80,9 @@ coverage/
 
 # Demo files
 Demos/
+
+# Extra Util files
+Utils/
+
+
+FindPossibleMemoryLeaks/

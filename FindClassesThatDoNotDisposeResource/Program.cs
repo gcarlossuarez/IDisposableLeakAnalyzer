@@ -7,7 +7,7 @@ CLASS DIAGRAM
    package FindClassesThatDoNotResource {
    
      class AnalizeLeaks {
-       +static Task Procesar()
+       +static Task Process()
        -static bool TypedSymbolIsIDisposable(INamedTypeSymbol i)
        -static Task AnalizeReturnStatementCase(Solution, HashSet<string>, Dictionary<IMethodSymbol, MethodSymbolMethodDeclaration>, StreamWriter, HashSet<KeyResult>)
        -static void AnalizeObjectCreationCase(SyntaxNode, HashSet<string>, SemanticModel, SyntaxTree, Document, StreamWriter, Project, HashSet<KeyResult>)
@@ -141,7 +141,7 @@ namespace FindClassesThatDoNotDisposeResource
             try
             {
                 _args = args;
-                Task.Run(() => Procesar()).Wait();
+                Task.Run(() => Process()).Wait();
             }
             catch (Exception ex)
             {
@@ -152,7 +152,7 @@ namespace FindClassesThatDoNotDisposeResource
             Console.ReadKey();
         }
 
-        public static async Task Procesar()
+        public static async Task Process()
         {
             CommandLineOptions cmdOptions = null;
             Parser.Default.ParseArguments<CommandLineOptions>(_args)
@@ -202,7 +202,7 @@ namespace FindClassesThatDoNotDisposeResource
 
                     var solution = await workspace.OpenSolutionAsync(solutionPath);
 
-                    Console.WriteLine($"Proyectos cargados: {solution.Projects.Count()}");
+                    //Console.WriteLine($"Proyectos cargados: {solution.Projects.Count()}");
                     HashSet<KeyResult> keyResults = new HashSet<KeyResult>();
                     // 🔍 **1. Identify all IDisposable classes in the solution **
                     var disposableClasses = new HashSet<string>();
@@ -297,22 +297,35 @@ namespace FindClassesThatDoNotDisposeResource
                             var root = await syntaxTree.GetRootAsync();
 
                             // Find all Methods and Propertys in current document
-                            foreach (var declarationSyntaxNode in root.DescendantNodes().Where(md => md is MethodDeclarationSyntax || md is PropertyDeclarationSyntax))
+                            foreach (var declarationSyntaxNode in root.DescendantNodes()
+                                         .Where(md =>
+                                             md is MethodDeclarationSyntax || md is PropertyDeclarationSyntax ||
+                                             md is LocalFunctionStatementSyntax))
                             {
                                 var methodSymbol = semanticModel.GetDeclaredSymbol(declarationSyntaxNode) as IMethodSymbol;
                                 // If method has return clase and DataType of return clause belongs to IDisposable classes
                                 if (methodSymbol != null && disposableClasses.Contains(methodSymbol.ReturnType.ToString()))
                                 {
-                                    // Identify is method delcaration or property delcaration
+                                    // Identify is method declaration or property delcaration
                                     if (declarationSyntaxNode is MethodDeclarationSyntax)
                                     {
                                         returnMethods[methodSymbol] = new MethodSymbolMethodDeclaration(methodSymbol,
-                                            (MethodDeclarationSyntax)declarationSyntaxNode, null, document.FilePath);
+                                            (MethodDeclarationSyntax)declarationSyntaxNode, propertyDeclarationSyntax: null,
+                                             localFunctionStatementSyntax: null, filePath: document.FilePath);
+                                    }
+                                    else if(declarationSyntaxNode is PropertyDeclarationSyntax)
+                                    {
+                                        returnMethods[methodSymbol] = new MethodSymbolMethodDeclaration(methodSymbol,
+                                            methodDeclarationSyntax: null, 
+                                            propertyDeclarationSyntax:  (PropertyDeclarationSyntax)declarationSyntaxNode, localFunctionStatementSyntax: null, 
+                                            filePath: document.FilePath);
                                     }
                                     else
                                     {
-                                        returnMethods[methodSymbol] = new MethodSymbolMethodDeclaration(methodSymbol, null,
-                                            (PropertyDeclarationSyntax)declarationSyntaxNode, document.FilePath);
+                                        returnMethods[methodSymbol] = new MethodSymbolMethodDeclaration(methodSymbol,
+                                            methodDeclarationSyntax: null, propertyDeclarationSyntax: null, 
+                                            localFunctionStatementSyntax: (LocalFunctionStatementSyntax)declarationSyntaxNode,
+                                            filePath: document.FilePath);
                                     }
                                 }
                             }
@@ -514,6 +527,13 @@ namespace FindClassesThatDoNotDisposeResource
                     continue;
                 }
 
+                // Checks if objCreation is a varaible tha is returned later.
+                if (IsVariableReturned(objCreation))
+                {
+                    continue;
+                }
+
+
                 string methodSignature;
                 SyntaxNode parent;
                 bool insideUsing;
@@ -588,6 +608,101 @@ namespace FindClassesThatDoNotDisposeResource
         }
 
         /// <summary>
+        /// Checks if objCreation is a varaible tha is returned later.
+        /// </summary>
+        /// <param name="objCreation"></param>
+        /// <returns></returns>
+        private static bool IsVariableReturned(SyntaxNode objCreation)
+        {
+            if (objCreation == null || objCreation.Parent == null)
+            {
+                return false;
+            }
+
+            // Early exit for constructors.
+            // NOTE. - Constructors don´t have return sentence.
+            if (objCreation.Ancestors().OfType<ConstructorDeclarationSyntax>().Any())
+            {
+                return false;
+            }
+
+            string variableName = GetVariableNameIfIsVariableDeclaratorSyntax(objCreation.Parent);
+            if (string.IsNullOrEmpty(variableName))
+            {
+                return false;
+            }
+
+            var declaration = objCreation.Ancestors()
+                .FirstOrDefault(x =>
+                    x is MethodDeclarationSyntax || x is PropertyDeclarationSyntax ||
+                    x is LocalFunctionStatementSyntax);
+
+            if (declaration == null)
+            {
+                return false;
+            }
+
+            return declaration.DescendantNodes()
+                .OfType<ReturnStatementSyntax>()
+                .Any(returnStatement => IsVariableUsedInReturnExpression(returnStatement.Expression, variableName));
+        }
+
+        private static bool IsVariableUsedInReturnExpression(ExpressionSyntax expression, string variableName)
+        {
+            if (expression == null)
+            {
+                return false;
+            }
+
+            // Case 1: Direct use (return variable;) 
+            if (expression is IdentifierNameSyntax)
+            {
+                IdentifierNameSyntax identifier = (IdentifierNameSyntax)expression;
+                if (identifier.Identifier.Text == variableName)
+                {
+                    return true;
+                }
+            }
+
+            // Case 2: Tuples (return (variable, 123);) 
+            if (expression is TupleExpressionSyntax)
+            {
+                TupleExpressionSyntax tuple = (TupleExpressionSyntax)expression;
+                return tuple.Arguments
+                    .Any(arg => IsVariableUsedInReturnExpression(arg.Expression, variableName));
+            }
+
+            // Case 3: Fields/properties (return this.field; or return obj.Prop;) 
+            if (expression is MemberAccessExpressionSyntax)
+            {
+                MemberAccessExpressionSyntax memberAccess = (MemberAccessExpressionSyntax)expression;
+                if (memberAccess.Expression is IdentifierNameSyntax)
+                {
+                    IdentifierNameSyntax memberIdentifier = (IdentifierNameSyntax)memberAccess.Expression;
+                    if (memberIdentifier.Identifier.Text == variableName)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            // Case 4: Anonymous expressions (return new { X = variable };) 
+            if (expression is AnonymousObjectCreationExpressionSyntax)
+            {
+                AnonymousObjectCreationExpressionSyntax anonymousObject =
+                    (AnonymousObjectCreationExpressionSyntax)expression;
+                return anonymousObject.Initializers
+                .Any(init => IsVariableUsedInReturnExpression(init.Expression, variableName));
+            }
+
+            // Case 5: Search in nested expressions (return something.Where(x => x == variable);)
+            return expression.DescendantNodesAndSelf()
+                .OfType<IdentifierNameSyntax>()
+                .Any(id => id.Identifier.Text == variableName);
+        }
+
+
+        /// <summary>
         /// Determines the name of a variable given an object creation and semantic context.
         /// See Mermaid diagram for details:https://mermaid.live/edit#pako:eNqlVm1v2jAQ_iuWv7SVKGrGO9I2VbSVKrEWDTRpI3wwiSnZEjtynBVG-e-znThOgoFq4wOy73x3z734cXbQoz6GQ7gK6au3RoyD2Z1LgPglXOwu5y6cyoULF1fg-voT8NbY-zVBDBO-e0zARayWFwCBb4gFaBniO-yFiCFO2XRLONp83rskc1mylb7evuPkDaAkCV7IA6NRpplPMQe_c19PKMJgJXQgi9N89MV_sAowa87whi_sjp_oW1l2ALc5-TfU57C_J4PJOxOppZNgxLz1KBQhNdSAEhFKikFdDhDxcCKSWegs6lBVMxnmKSOiBPOvalVBvbAb2sx1EDtIlcMDTYmfd-V5-XPEsNLdKu9R3h5qFMBo7jcxw2JHiWnNmWhPlIM8YnbqNq9HoisWmBoli0qrrehMz9WZ6TZa0lBCTtRKDNJDgEMfUAYmjMaY8a2GecapaW5uGODkkaisNFbtsZRlVgmZhSdPAt-oqtlkSOsja6bvyLCaAwu7sxOwqyNnPKmZSTDX6cxYiudBorfP7JZzFixTjsFHwIVyUZqykYx_H8V8Wx22g-jKJqQ0NhpBYmMhAHzNaPpirWciCC5zWzUtcV5upCdppxcgQlycqExvnT1qtqYdohyagdQVyw8e6YpWN-3tsYaRjcLEH9crMqLCA0mxSlhlr8tqRWRr3of_6N4BpHf0urjERY_Nta612Bylq-KRKmVZMTZN_oL5mvqzbYzl3dYEATJxmWSE8IB4Sne_JK6NgolQGgJOY4l-PhULIFeL4xbF21aiRY441hxagLborU-b5VyN7WxULEOZnYh6grDBa8DXJUqRA12l8pNAVMb5tI5rTS-meFyd4qO4bY_3WTY0ji6SI9R4NNZR9Icvc40qj10Gq7fDK1HcnXy6Tvqsy2V7K3XAUqrbVT9tippplFB_U7iw4FarnSzQwZdEIVCo74lfFhe2mSJTieXlpfi7unIJbMAIswgFvvi03Um9C_laTJQLh2Lp4xVKQ_FN65K9OIpSTsU4enAoaasBFYPA4QqFidilsS-G8S5ALwxF-kiMyA9Ky1s43MENHF47LafZvune9AetXqfddzrtBtzCodNudtptp9frO73uwOl2nX0D_lEuWs3WYDBwbtrtwaDvdPuDzv4vi2IwVw
         /// </summary>
@@ -596,7 +711,7 @@ namespace FindClassesThatDoNotDisposeResource
         /// <param name="objCreation"></param>
         /// <param name="isPropertyOrAttribute"></param>
         /// <returns></returns>
-        /// <seealso cref="IsSomeTypeOfMethodDeclaration"/>
+        /// <seealso cref="IsSomeTypeOfMethodOrClassDeclaration"/>
         /// <seealso cref="GetLastIdentifierNameSyntax"/>
         private static string GetVariableName(SemanticModel semanticModel, SyntaxNode parent, SyntaxNode objCreation,
             ref bool isPropertyOrAttribute)
@@ -672,7 +787,7 @@ namespace FindClassesThatDoNotDisposeResource
                     var ancestors = parent.Ancestors();
                     foreach (var a in ancestors)
                     {
-                        if (IsSomeTypeOfMethodDeclaration(a))
+                        if (IsSomeTypeOfMethodOrClassDeclaration(a))
                         {
                             break;
                         }
@@ -752,7 +867,7 @@ namespace FindClassesThatDoNotDisposeResource
 
         /// <summary>
         /// Look for a Dispose call inside methodDeclaration, constructorDeclaration or propertyDeclaration that
-        /// creates instance of Dispoable class.
+        /// creates instance of Disposable class.
         /// If not found, then look for the Dispose call in the class that contains invocationExpressionSyntax.
         /// See Mermaid Diagram in:https://mermaid.live/edit#pako:eNqVVl1vmzAU_SuWn1oprZYvWpC2aUrSrg9tprUvW-DBBaeggR3ZZk0a5b_PNh8hYBztBZnre8_xub73wh6GNMLQg-uUvocxYgK8zH3ik2ch1xcrH-qFD4NLcHX1BcxiHP55xCKm0RyHKWJIJJTsHzjI2kZAqAAkT9OvBwVojpSg4BfmGvsZIxbG84RvKMcPpPBdFVZQmkGI0hQkpEsX2Cie6PH0M0q4YHkoKGtJCI07Jh1mDIuYRkCfIjN7cJaxqe0HoxvMxK4lbNM1m1QZoi2SKu8-PQbSwE5kUrJk34RgyWsusC5LU42UpxOPOHvFTGZKoITw0qkuIyFrxrAPBC2LCRCU4aDD0ci8lej0ii1sjYvuoazEW_ka-beQVbdQMSkuW6KON_BA_tJQ380dzUnUH9hO0P9Fn2g1h5ZV07Lvj--L7YZhzuXqeSfBt2CtHFRlmwJPa1p8R9VRXliOdTbj2jRTxfwZSHk46Ec7U7iqBRNu2NC4hgZsuhzhf2KRM1Ie7A6lHK8KE1irl8AOUim-S0g0SxHnjeZbKSNoWwEiIebyVnXZmOIK1S3jYptwwfcd3-OdGAOsQm1BvZ8PVWy8d9oqvLJteGAcLXpLQx-vvLYXJVihJrVDIbP4QmlHpbgv_oxmW1il-r5qqyfZ36v7ehToflejRvVaQt6qBGipJ0FVH2joZS6W62IS1N2gFWG9s3wn3e9r3R49IOZGK0fRqbGbCn2KssxLmm6qdNiCRBcX8nF52XKpgRfFMIEDmGGWoSSS_z17nwDgQxHjDPvQk8sIr1Geyl8enxykK8oFlVMlhJ6iH0BG87cYerrlBjDfREjgeYLeGMoqlw0ivyltvkJvD7fQmzrXU3c8dm4c1xlPnLEzgDvoja6nk8lwNLm5nQ5HQ0cuDgP4oQHG12PXdYefJhPXvR067uEf_-mPQw
         /// </summary>
@@ -831,7 +946,7 @@ namespace FindClassesThatDoNotDisposeResource
                 if (classDeclaration != null)
                 {
                     var methodsDeclarationsClass =
-                        classDeclaration.DescendantNodes().Where(x => IsSomeTypeOfMethodDeclaration(x));
+                        classDeclaration.DescendantNodes().Where(x => IsSomeTypeOfMethodOrClassDeclaration(x));
                     foreach (var methodDeclarationSyntax in methodsDeclarationsClass)
                     {
                         invocationExpressionSyntax = methodDeclarationSyntax.DescendantNodes()
@@ -846,14 +961,16 @@ namespace FindClassesThatDoNotDisposeResource
                         {
                             var member = invocationExpressionSyntax.Ancestors().FirstOrDefault(x =>
                                 x is MethodDeclarationSyntax || x is ConstructorDeclarationSyntax ||
-                                x is PropertyDeclarationSyntax);
+                                x is PropertyDeclarationSyntax || x is LocalFunctionStatementSyntax);
                             if (member != null)
                             {
                                 memberContainsDispose = member is MethodDeclarationSyntax
                                     ? ((MethodDeclarationSyntax)member).Identifier.Text
                                     : member is ConstructorDeclarationSyntax
                                         ? ((ConstructorDeclarationSyntax)member).Identifier.Text
-                                        : ((PropertyDeclarationSyntax)member).Identifier.Text;
+                                        : member is LocalFunctionStatementSyntax 
+                                            ? ((LocalFunctionStatementSyntax)member).Identifier.Text
+                                                : ((PropertyDeclarationSyntax)member).Identifier.Text;
                                 string prefixNameSpaceClassName = GertPrefixNamespaceClass(member);
                                 memberContainsDispose = $"{prefixNameSpaceClassName}{memberContainsDispose}";
                             }
@@ -908,7 +1025,7 @@ namespace FindClassesThatDoNotDisposeResource
         /// <param name="constructorDeclarationSyntax"></param>
         /// <param name="propertyDeclaration"></param>
         /// <returns></returns>
-        /// <seealso cref="IsSomeTypeOfMethodDeclaration"/>
+        /// <seealso cref="IsSomeTypeOfMethodOrClassDeclaration"/>
         /// <seealso cref="GetMethodSignature"/>
         private static bool BelongsUsing(SyntaxNode objCreation, out string methodSignature, out SyntaxNode parent,
             out bool insideUsing, out bool usedInUsingLater, out MethodDeclarationSyntax methodDeclaration,
@@ -918,40 +1035,19 @@ namespace FindClassesThatDoNotDisposeResource
             methodSignature = "N/A";
             methodDeclaration = null;
 
-            parent = objCreation.Parent;
-            EqualsValueClauseSyntax eq = null;
-            if (parent != null && parent is MemberAccessExpressionSyntax)
-            {
-                MemberAccessExpressionSyntax memberAccessExpressionSyntax = (MemberAccessExpressionSyntax)parent;
-                if (memberAccessExpressionSyntax.Expression != null)
-                {
-                    eq = memberAccessExpressionSyntax.Ancestors().OfType<EqualsValueClauseSyntax>().FirstOrDefault();
-                    if (eq != null)
-                    {
-                        parent = eq;
-                    }
-                }
-            }
+            var eq = EqualsValueClauseSyntax(objCreation, out parent);
+
             var ancestors = objCreation.Ancestors();
             insideUsing = false;
             usedInUsingLater = false;
-            string variableName = null;
 
             // Check if the object is in a variable declaration
-            if (parent is EqualsValueClauseSyntax)
-            {
-                EqualsValueClauseSyntax equalsValueClause = (EqualsValueClauseSyntax)parent;
-                if (equalsValueClause.Parent != null && equalsValueClause.Parent is VariableDeclaratorSyntax)
-                {
-                    VariableDeclaratorSyntax variableDeclarator = (VariableDeclaratorSyntax)equalsValueClause.Parent;
-                    variableName = variableDeclarator.Identifier.Text;
-                }
-            }
+            string variableName = GetVariableNameIfIsVariableDeclaratorSyntax(parent);
 
             // Traverse all ancestors until a `Using Statement Syntax` is found
             foreach (var ancestor in ancestors ?? new List<SyntaxNode>())
             {
-                if (IsSomeTypeOfMethodDeclaration(ancestor))
+                if (IsSomeTypeOfMethodOrClassDeclaration(ancestor))
                 {
                     // In order not to iterate in vain, if there were no using that contains it
                     break;
@@ -986,7 +1082,7 @@ namespace FindClassesThatDoNotDisposeResource
             if (!insideUsing && !string.IsNullOrEmpty(variableName))
             {
                 var methodRoot = ancestors != null
-                    ? ancestors.FirstOrDefault(IsSomeTypeOfMethodDeclaration)
+                    ? ancestors.FirstOrDefault(IsSomeTypeOfMethodOrClassDeclaration)
                     : null;
                 if (methodRoot != null)
                 {
@@ -994,7 +1090,9 @@ namespace FindClassesThatDoNotDisposeResource
                     // using that will free it.
                     var laterUsing = methodRoot.DescendantNodes()
                         .OfType<UsingStatementSyntax>()
-                        .Where(us => us.Expression != null && us.Expression is IdentifierNameSyntax).ToList().Where(us => ((IdentifierNameSyntax)us.Expression)?.Identifier.ValueText == variableName);
+                        .Where(us => us.Expression != null && us.Expression is IdentifierNameSyntax)
+                        .ToList()
+                        .Where(us => ((IdentifierNameSyntax)us.Expression)?.Identifier.ValueText == variableName);
 
                     if (laterUsing.Any())
                     {
@@ -1007,14 +1105,52 @@ namespace FindClassesThatDoNotDisposeResource
             return insideUsing || usedInUsingLater;
         }
 
+        private static EqualsValueClauseSyntax EqualsValueClauseSyntax(SyntaxNode objCreation, out SyntaxNode parent)
+        {
+            parent = objCreation.Parent;
+            EqualsValueClauseSyntax eq = null;
+            if (parent != null && parent is MemberAccessExpressionSyntax)
+            {
+                MemberAccessExpressionSyntax memberAccessExpressionSyntax = (MemberAccessExpressionSyntax)parent;
+                if (memberAccessExpressionSyntax.Expression != null)
+                {
+                    eq = memberAccessExpressionSyntax.Ancestors().OfType<EqualsValueClauseSyntax>().FirstOrDefault();
+                    if (eq != null)
+                    {
+                        parent = eq;
+                    }
+                }
+            }
+
+            return eq;
+        }
+
+        private static string GetVariableNameIfIsVariableDeclaratorSyntax(SyntaxNode parent)
+        {
+            string variableName = null;
+            if (parent is EqualsValueClauseSyntax)
+            {
+                EqualsValueClauseSyntax equalsValueClause = (EqualsValueClauseSyntax)parent;
+                if (equalsValueClause.Parent != null && equalsValueClause.Parent is VariableDeclaratorSyntax)
+                {
+                    VariableDeclaratorSyntax variableDeclarator = (VariableDeclaratorSyntax)equalsValueClause.Parent;
+                    variableName = variableDeclarator.Identifier.Text;
+                }
+            }
+
+            return variableName;
+        }
+
         /// <summary>
-        /// Checks if the syntaxNode is a method declaration, class declaration or property declaration.
+        /// Checks if the syntaxNode is a method declaration or class declaration.
         /// </summary>
         /// <param name="syntaxNode"></param>
         /// <returns></returns>
-        private static bool IsSomeTypeOfMethodDeclaration(SyntaxNode syntaxNode)
+        private static bool IsSomeTypeOfMethodOrClassDeclaration(SyntaxNode syntaxNode)
         {
-            return syntaxNode is MethodDeclarationSyntax || syntaxNode is ClassDeclarationSyntax || syntaxNode is PropertyDeclarationSyntax;
+            return syntaxNode is MethodDeclarationSyntax || syntaxNode is ClassDeclarationSyntax ||
+                   syntaxNode is ConstructorDeclarationSyntax || syntaxNode is PropertyDeclarationSyntax || 
+                   syntaxNode is LocalFunctionStatementSyntax;
         }
 
         /// <summary>
@@ -1041,6 +1177,14 @@ namespace FindClassesThatDoNotDisposeResource
                     if (propertyDeclaration != null)
                     {
                         GetMethodSignature(out methodSignature, propertyDeclaration);
+                    }
+                    else
+                    {
+                        LocalFunctionStatementSyntax localFunctionStatementSyntax = objCreation as LocalFunctionStatementSyntax;
+                        if (localFunctionStatementSyntax != null)
+                        {
+                            methodSignature = GetMethodSignature(localFunctionStatementSyntax, methodSignature);
+                        }
                     }
                 }
                 else
@@ -1094,7 +1238,7 @@ namespace FindClassesThatDoNotDisposeResource
             }
 
             methodSignature =
-                $"{propertyDeclaration.Modifiers} {prefixNameSpaceClassName}{propertyDeclaration.Identifier}"
+                $"{propertyDeclaration.Modifiers} {propertyDeclaration.Type} {prefixNameSpaceClassName}{propertyDeclaration.Identifier}"
                     .Trim();
         }
 
@@ -1123,6 +1267,36 @@ namespace FindClassesThatDoNotDisposeResource
                     prefixNameSpaceClassName += ".";
                 }
                 methodSignature = $"{methodDeclaration.Modifiers} {methodDeclaration.ReturnType} {prefixNameSpaceClassName}{methodDeclaration.Identifier}({string.Join(", ", methodDeclaration.ParameterList.Parameters)})".Trim();
+            }
+
+            return methodSignature;
+        }
+
+        /// <summary>
+        /// Get the method signature (with namespace and class name) of the LocalFunctionStatementSyntax.
+        /// </summary>
+        /// <param name="localFunctionStatementSyntax"></param>
+        /// <param name="methodSignature"></param>
+        /// <returns></returns>
+        private static string GetMethodSignature(LocalFunctionStatementSyntax localFunctionStatementSyntax, string methodSignature)
+        {
+            if (localFunctionStatementSyntax != null)
+            {
+                string prefixNameSpaceClassName = string.Empty;
+                ClassDeclarationSyntax classDeclaration = localFunctionStatementSyntax.Ancestors()
+                    .OfType<ClassDeclarationSyntax>().FirstOrDefault();
+                if (classDeclaration != null)
+                {
+                    prefixNameSpaceClassName = classDeclaration.Identifier.Text;
+                    var nameSpaceDeclaration = classDeclaration.Ancestors().OfType<NamespaceDeclarationSyntax>().FirstOrDefault();
+                    if (nameSpaceDeclaration != null)
+                    {
+                        prefixNameSpaceClassName = nameSpaceDeclaration.Name.ToString() + "." + prefixNameSpaceClassName;
+                    }
+
+                    prefixNameSpaceClassName += ".";
+                }
+                methodSignature = $"(local function) {localFunctionStatementSyntax.Modifiers} {localFunctionStatementSyntax.ReturnType} {prefixNameSpaceClassName}{localFunctionStatementSyntax.Identifier}({string.Join(", ", localFunctionStatementSyntax.ParameterList.Parameters)})".Trim();
             }
 
             return methodSignature;

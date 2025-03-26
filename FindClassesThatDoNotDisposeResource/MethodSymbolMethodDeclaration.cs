@@ -11,18 +11,23 @@ namespace FindClassesThatDoNotDisposeResource
     class MethodSymbolMethodDeclaration
     {
         private IMethodSymbol MethodSymbol { get; set; }
+
         public MethodDeclarationSyntax MethodDeclarationSyntax { get; set; }
 
         public PropertyDeclarationSyntax PropertyDeclarationSyntax { get; set; }
 
+        public LocalFunctionStatementSyntax LocalFunctionStatementSyntax { get; set; }
+
         public string FilePath { get; set; }
 
         public MethodSymbolMethodDeclaration(IMethodSymbol methodSymbol,
-            MethodDeclarationSyntax methodDeclarationSyntax, PropertyDeclarationSyntax propertyDeclarationSyntax, string filePath)
+            MethodDeclarationSyntax methodDeclarationSyntax, PropertyDeclarationSyntax propertyDeclarationSyntax,
+            LocalFunctionStatementSyntax localFunctionStatementSyntax, string filePath)
         {
             this.MethodSymbol = methodSymbol;
             this.MethodDeclarationSyntax = methodDeclarationSyntax;
             this.PropertyDeclarationSyntax = propertyDeclarationSyntax;
+            this.LocalFunctionStatementSyntax = localFunctionStatementSyntax;
             this.FilePath = filePath;
         }
     }
