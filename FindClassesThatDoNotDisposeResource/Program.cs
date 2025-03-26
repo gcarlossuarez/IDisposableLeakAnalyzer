@@ -430,8 +430,9 @@ namespace FindClassesThatDoNotDisposeResource
                                 MethodDeclarationSyntax methodDeclaration;
                                 ConstructorDeclarationSyntax constructorDeclaration;
                                 PropertyDeclarationSyntax propertyDeclaration;
-                                var hasDisposeCall = BelongsUsing(syntaxNode, out methodSignature, out parent1, out insideUsing,
-                                    out usedInUsingLater, out methodDeclaration, out constructorDeclaration, out propertyDeclaration);
+                                var hasDisposeCall = BelongsUsing(semanticModel, syntaxNode, out methodSignature, 
+                                    out parent1, out insideUsing, out usedInUsingLater, out methodDeclaration, 
+                                    out constructorDeclaration, out propertyDeclaration);
 
                                 if (!hasDisposeCall)
                                 {
@@ -456,7 +457,7 @@ namespace FindClassesThatDoNotDisposeResource
                                 MethodDeclarationSyntax methodDeclaration;
                                 ConstructorDeclarationSyntax constructorDeclaration;
                                 PropertyDeclarationSyntax propertyDeclaration;
-                                var hasDisposeCall = BelongsUsing(syntaxNode, out methodSignature, out parent1, out insideUsing,
+                                var hasDisposeCall = BelongsUsing(semanticModel, syntaxNode, out methodSignature, out parent1, out insideUsing,
                                     out usedInUsingLater, out methodDeclaration, out constructorDeclaration, out propertyDeclaration);
 
                                 if (!hasDisposeCall)
@@ -527,7 +528,7 @@ namespace FindClassesThatDoNotDisposeResource
                     continue;
                 }
 
-                // Checks if objCreation is a varaible tha is returned later.
+                // Checks if objCreation is a variable tha is returned later.
                 if (IsVariableReturned(objCreation))
                 {
                     continue;
@@ -541,7 +542,7 @@ namespace FindClassesThatDoNotDisposeResource
                 MethodDeclarationSyntax methodDeclaration;
                 ConstructorDeclarationSyntax constructorDeclaration;
                 PropertyDeclarationSyntax propertyDeclaration;
-                var hasDisposeCall = BelongsUsing(objCreation, out methodSignature, out parent, out insideUsing,
+                var hasDisposeCall = BelongsUsing(semanticModel, objCreation, out methodSignature, out parent, out insideUsing,
                     out usedInUsingLater, out methodDeclaration, out constructorDeclaration, out propertyDeclaration);
 
                 string className = semanticModel.GetTypeInfo(objCreation).Type.ToString();
@@ -608,7 +609,7 @@ namespace FindClassesThatDoNotDisposeResource
         }
 
         /// <summary>
-        /// Checks if objCreation is a varaible tha is returned later.
+        /// Checks if objCreation is a variable that is returned later.
         /// </summary>
         /// <param name="objCreation"></param>
         /// <returns></returns>
@@ -1016,6 +1017,7 @@ namespace FindClassesThatDoNotDisposeResource
         /// later.
         /// See Mermaid Diagram in:https://mermaid.live/edit#pako:eNqNVttu2zgQ_RWCTwngZKvI3ixc7BZtkhYG2qbIDehaemCkcaxWIr0k1SY18u9LDkWJsuSgeXCkw7nxnOFQW5qJHOicrkrxM1szqcnNecITfq3N88EyofiQ0PSQHB39Qxa80AUri19wx2TB7ktQyw4jPzxIGM-JqPWm1mqe8IKrIodbVfAH8jdZsVLB64TXCvIFR_Qj0yCDJaWltfXxPrMKzCqvy_J1assbqQPrO1tD9v0Lk8D1J6juQb7NMlBqu1BkgygJ4YvHjTT_CsGvn7hmj2-eE74ngolOvjZJPoC--K82ld6xsoazkpmNLA1IBqihwThrIdMXA38WGPca9NvGXi3NS-utyEqKioj7b2cSmDb1IgljdWCg201u-HS5lu7Fb79YjVS5EjXPTcjQb1ARdkXw3vHtJTiHrGQS6wsIH6TruG5IGfHfoXvXQkjk27cH4bY_kKOhpUuXvpyrUeBGsh8gFbSbxOZcejgQRAGT2dr26EpIgmbmpGiozJbbjCjRsCJP7V3Q3ah32O4psh2avFChTTW-gk4fhdjsbMlCRK-lqB_W3baw5qE1BvHQQn0CvRa5ldg7EkYcGND6h1FbqRD4IsUGpH4KMNsFu4FD7d-Zfv_eK2iJECkNlo77Nlp2S311enWPCec6c597kOFMcF3wGvr1eXRY4jDQ13BsXd5_g0w3A3GJkD2uAmFSKJIjb5CTgrvC0_YI9XwxZA95bw_41kHutLcx7G6HtmFxpg0X3fy-kbVr1v5M1wZO90V6ia9mrOxk6FgJFi6lPw4JHzbGcB7ZQ3NRbfSTlbx3lYBFRyZQ6zEQZ08Z-739nkODW3Ph4U3XqduOMKOvvQ-tLiVeho5Z5dslHRTbRsNEA3TrERfXBQ1VH4sTin67cz23yo_c2438oyFDJvbQaHY21ht7hlfTMmP1_U6mvav-tnGj5Lp44EzX0l3tVR_D7xsJltS8OZc4z5Sf-jsxMPQVmEd-Baou9TY8PpdXA06tQKF9qI3DUQ736OnfdWiYd_B7-2nlHfA7C2vtgqHtBc8PDszP4aFfQj-_lnA6oRXIihW5-WrcJpyQhOq1adGEzs1jDitmsic04c_GlNVamKma0bktcULxvqFzTD-hNX5vnBfsQbKqRTeM_ytE5V3MK51v6SOdH82Op_HJ9K_oVRSdxNNoOpvQJzqPpsfTmfmLT2evTman8Sx6ntBfGGF2HMV_RvE0juOT6DSKps__A3W1-as
         /// </summary>
+        /// <param name="semanticModel"></param>
         /// <param name="objCreation"></param>
         /// <param name="methodSignature"></param>
         /// <param name="parent"></param>
@@ -1027,8 +1029,9 @@ namespace FindClassesThatDoNotDisposeResource
         /// <returns></returns>
         /// <seealso cref="IsSomeTypeOfMethodOrClassDeclaration"/>
         /// <seealso cref="GetMethodSignature"/>
-        private static bool BelongsUsing(SyntaxNode objCreation, out string methodSignature, out SyntaxNode parent,
-            out bool insideUsing, out bool usedInUsingLater, out MethodDeclarationSyntax methodDeclaration,
+        private static bool BelongsUsing(SemanticModel semanticModel, SyntaxNode objCreation,
+            out string methodSignature, out SyntaxNode parent, out bool insideUsing, out bool usedInUsingLater,
+            out MethodDeclarationSyntax methodDeclaration,
             out ConstructorDeclarationSyntax constructorDeclarationSyntax,
             out PropertyDeclarationSyntax propertyDeclaration)
         {
@@ -1069,6 +1072,13 @@ namespace FindClassesThatDoNotDisposeResource
                         insideUsing = true;
                         break;
                     }
+
+                    if (IsPartOfUsing(usingStatement, objCreation, semanticModel))
+                    {
+                        insideUsing = true;
+                        break;
+                    }
+                    /////////////////////
                 }
             }
 
@@ -1079,6 +1089,11 @@ namespace FindClassesThatDoNotDisposeResource
             // {
             //      // Some operations
             // }
+            if (!insideUsing && string.IsNullOrEmpty(variableName))
+            {
+                bool isPropertyOrAttribute = false;
+                variableName = GetVariableName(semanticModel, parent, objCreation, ref isPropertyOrAttribute);
+            }
             if (!insideUsing && !string.IsNullOrEmpty(variableName))
             {
                 var methodRoot = ancestors != null
@@ -1098,11 +1113,50 @@ namespace FindClassesThatDoNotDisposeResource
                     {
                         usedInUsingLater = true;
                     }
+                    else
+                    {
+                        var laterUsing2= methodRoot.DescendantNodes()
+                            .OfType<UsingStatementSyntax>()
+                            .Where(us => us.Expression != null && us.Expression is AssignmentExpressionSyntax).Select(us=> us.Expression)
+                            .Where(a => ((AssignmentExpressionSyntax)a).Left is IdentifierNameSyntax).Select(i=> ((AssignmentExpressionSyntax)i).Left)
+                            .Where(i=> ((IdentifierNameSyntax)i).Identifier.ValueText == variableName);
+                        if (laterUsing2.Any())
+                        {
+                            usedInUsingLater = true;
+                        }
+                    }
                 }
             }
 
             GetMethodSignature(objCreation, ref methodSignature, out methodDeclaration, out constructorDeclarationSyntax, out propertyDeclaration);
             return insideUsing || usedInUsingLater;
+        }
+
+        /// <summary>
+        /// Checks if the object creation is part of a `using` statement.
+        /// </summary>
+        /// <param name="usingStatement"></param>
+        /// <param name="objCreation"></param>
+        /// <param name="semanticModel"></param>
+        /// <returns></returns>
+        private static bool IsPartOfUsing(UsingStatementSyntax usingStatement, SyntaxNode objCreation,
+            SemanticModel semanticModel)
+        {
+            // Case1 1: Declaration
+            if (usingStatement.Declaration?.Variables.Any(v => v.Initializer?.Value == objCreation) == true)
+            {
+                return true;
+            }
+
+            // Case 2: Exact expression or part of it
+            if (usingStatement.Expression != null &&
+                usingStatement.Expression.DescendantNodesAndSelf().Any(x => x == objCreation))
+            {
+                return true;
+            }
+
+            // Case 3: Used inside the block, but not part of the using
+            return false;
         }
 
         private static EqualsValueClauseSyntax EqualsValueClauseSyntax(SyntaxNode objCreation, out SyntaxNode parent)
