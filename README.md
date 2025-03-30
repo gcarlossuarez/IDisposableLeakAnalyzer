@@ -78,6 +78,53 @@ dotnet IDisposableLeakAnalyzer.dll
 
 Check the generated `resultados.csv` file located in the configured OUTPUT folder.
 
+📌 Validation Exception File (ValidationException.json)
+The analyzer allows excluding known valid scenarios through the ValidationException.json file. This JSON file defines specific cases (such as methods, classes, or lines of code) that should intentionally be ignored to prevent false positives.
+
+🚩 Configuration
+First, copy the provided template file to your working file:
+
+shell
+Copiar
+Editar
+cp ValidationException.example.json ValidationException.json
+Next, customize your local ValidationException.json with project-specific exceptions you wish the analyzer to bypass.
+
+📋 File Format
+Each entry in the JSON array represents one scenario to exclude from validation:
+
+json
+Copiar
+Editar
+[
+  {
+    "project": "YourProjectName",
+    "file": "Path\\To\\YourFile.cs",
+    "lineNumber": 42,
+    "class": "Namespace.YourClass",
+    "method": "FullMethodSignature"
+  }
+]
+Explanation of fields:
+
+project: The name of the project or module.
+
+file: The relative or absolute local file path.
+
+lineNumber: Exact line number in the specified file.
+
+class: Fully qualified class name including namespace.
+
+method: Complete method signature as it appears in your code.
+
+🎯 Purpose and Benefits
+Clearly documents known exceptions for better maintainability.
+
+Helps collaborators understand explicitly exempted scenarios.
+
+Simplifies handling of false positives and intentional usage patterns.
+
+
 ## 💡 Future Enhancements
 
 - Improved heuristic detection of complex disposal patterns.
