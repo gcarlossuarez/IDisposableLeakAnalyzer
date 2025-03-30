@@ -8,19 +8,21 @@ namespace FindClassesThatDoNotDisposeResource
 {
     public class KeyResult : IEquatable<KeyResult>
     {
-        public string Proyecto { get; set; }
-        public string Archivo { get; set; }
-        public int Línea { get; set; }
-        public string Clase { get; set; }
-        public string Método { get; set; }
+        public string Project { get; set; }
+        public string File { get; set; }
+        public int LineNumber { get; set; }
+        public string Class { get; set; }
+        public string Method { get; set; }
 
-        public KeyResult(string proyecto, string archivo, int línea, string clase, string método)
+        public KeyResult() { } // required for deserialization
+
+        public KeyResult(string project, string file, int lineNumber, string @class, string method)
         {
-            this.Proyecto = proyecto?.Trim();
-            this.Archivo = archivo?.Trim();
-            this.Línea = línea;
-            this.Clase = clase?.Trim();
-            this.Método = método?.Trim();
+            this.Project = project?.Trim();
+            this.File = file?.Trim();
+            this.LineNumber = lineNumber;
+            this.Class = @class?.Trim();
+            this.Method = method?.Trim();
         }
 
         // Implementación de IEquatable<KeyResult>
@@ -29,11 +31,11 @@ namespace FindClassesThatDoNotDisposeResource
             if (other == null)
                 return false;
 
-            return string.Equals(this.Proyecto, other.Proyecto, StringComparison.OrdinalIgnoreCase) &&
-                   string.Equals(this.Archivo, other.Archivo, StringComparison.OrdinalIgnoreCase) &&
-                   this.Línea == other.Línea &&
-                   string.Equals(this.Clase, other.Clase, StringComparison.OrdinalIgnoreCase) &&
-                   string.Equals(this.Método, other.Método, StringComparison.OrdinalIgnoreCase);
+            return string.Equals(this.Project, other.Project, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(this.File, other.File, StringComparison.OrdinalIgnoreCase) &&
+                   this.LineNumber == other.LineNumber &&
+                   string.Equals(this.Class, other.Class, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(this.Method, other.Method, StringComparison.OrdinalIgnoreCase);
         }
 
         // Sobrescribir Equals para comparar con cualquier objeto
@@ -54,11 +56,11 @@ namespace FindClassesThatDoNotDisposeResource
             unchecked
             {
                 int hash = 17;
-                hash = hash * 31 + (Proyecto?.ToLowerInvariant().GetHashCode() ?? 0);
-                hash = hash * 31 + (Archivo?.ToLowerInvariant().GetHashCode() ?? 0);
-                hash = hash * 31 + Línea.GetHashCode();
-                hash = hash * 31 + (Clase?.ToLowerInvariant().GetHashCode() ?? 0);
-                hash = hash * 31 + (Método?.ToLowerInvariant().GetHashCode() ?? 0);
+                hash = hash * 31 + (Project?.ToLowerInvariant().GetHashCode() ?? 0);
+                hash = hash * 31 + (File?.ToLowerInvariant().GetHashCode() ?? 0);
+                hash = hash * 31 + LineNumber.GetHashCode();
+                hash = hash * 31 + (Class?.ToLowerInvariant().GetHashCode() ?? 0);
+                hash = hash * 31 + (Method?.ToLowerInvariant().GetHashCode() ?? 0);
                 return hash;
             }
         }

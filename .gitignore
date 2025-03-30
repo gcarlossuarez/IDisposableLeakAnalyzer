@@ -86,3 +86,9 @@ Utils/
 
 
 FindPossibleMemoryLeaks/
+
+
+FindClassesThatDoNotDisposeResource/App.config
+
+
+FindClassesThatDoNotDisposeResource/ValidationException/ValidationException.json

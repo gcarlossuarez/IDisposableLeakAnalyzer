@@ -31,11 +31,11 @@ CLASS DIAGRAM
      }
    
      class KeyResult {
-       +Proyecto : string
-       +Archivo : string
-       +Línea : int
-       +Clase : string
-       +Método : string
+       +Project : string
+       +File : string
+       +LineNumber : int
+       +Class : string
+       +Method : string
      }
    
      class MethodSymbolMethodDeclaration {
@@ -117,6 +117,8 @@ FLOWCHART
  */
 
 using CommandLine;
+using FindClassesThatDoNotDisposeResource.ValidationException;
+using Microsoft.CodeAnalysis.VisualBasic.Syntax;
 
 namespace FindClassesThatDoNotDisposeResource
 {
@@ -131,10 +133,12 @@ namespace FindClassesThatDoNotDisposeResource
     using System.Linq;
     using System.Threading.Tasks;
     using Microsoft.Build.Locator;
+    using System.Data.Common;
 
 
     public class Program
     {
+        private const string METHOD_SIGNATURE_NOT_FOUNDED = "N/A";
         private static string[] _args;
         static void Main(string[] args)
         {
@@ -296,14 +300,14 @@ namespace FindClassesThatDoNotDisposeResource
                             var semanticModel = await document.GetSemanticModelAsync();
                             var root = await syntaxTree.GetRootAsync();
 
-                            // Find all Methods and Propertys in current document
+                            // Find all Methods,  Properties and Local Functions in current document
                             foreach (var declarationSyntaxNode in root.DescendantNodes()
                                          .Where(md =>
                                              md is MethodDeclarationSyntax || md is PropertyDeclarationSyntax ||
                                              md is LocalFunctionStatementSyntax))
                             {
                                 var methodSymbol = semanticModel.GetDeclaredSymbol(declarationSyntaxNode) as IMethodSymbol;
-                                // If method has return clase and DataType of return clause belongs to IDisposable classes
+                                // If method has return class and DataType of return clause belongs to IDisposable classes
                                 if (methodSymbol != null && disposableClasses.Contains(methodSymbol.ReturnType.ToString()))
                                 {
                                     // Identify is method declaration or property delcaration
@@ -380,6 +384,9 @@ namespace FindClassesThatDoNotDisposeResource
             Dictionary<IMethodSymbol, MethodSymbolMethodDeclaration> returnMethods,
             StreamWriter csvWriter, HashSet<KeyResult> keyResults)
         {
+            ValidationException.ValidationException validationException =
+                ValidationException.DynamicInstantiator.CreateInstanceFromConfig();
+
             foreach (var project in solution.Projects)
             {
                 foreach (var document in project.Documents)
@@ -390,7 +397,6 @@ namespace FindClassesThatDoNotDisposeResource
 
                     foreach (var invocation in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
                     {
-                        const string METHOD_SIGNATURE_NOT_FOUNDED = "N/A";
                         bool isDisposed = false;
                         string methodSignature = METHOD_SIGNATURE_NOT_FOUNDED;
                         var symbol = semanticModel.GetSymbolInfo(invocation.Expression).Symbol as IMethodSymbol;
@@ -443,6 +449,21 @@ namespace FindClassesThatDoNotDisposeResource
                                         propertyDeclaration, false, ref foundeOutOfOwnMethodDeclaration,
                                         out memberContainsDispose);
                                 }
+                                if (!hasDisposeCall)
+                                {
+                                    bool foundeOutOfOwnMethodDeclaration = false;
+                                    string memberContainsDispose;
+                                    var a = parent1 as MemberAccessExpressionSyntax;
+                                    if (a!= null && invocation.Parent is AssignmentExpressionSyntax)
+                                    {
+                                        AssignmentExpressionSyntax assignmentExpressionSyntax =
+                                            (AssignmentExpressionSyntax)invocation.Parent;
+                                        string variableName = GetLastIdentifierNameSyntax(assignmentExpressionSyntax.Left)?.Identifier.Text;
+                                        hasDisposeCall = HasDisposeCall(methodDeclaration, constructorDeclaration, propertyDeclaration,
+                                            variableName, false, ref foundeOutOfOwnMethodDeclaration,
+                                            out memberContainsDispose);
+                                    }
+                                }
 
                                 isDisposed = hasDisposeCall;
                             }
@@ -468,12 +489,29 @@ namespace FindClassesThatDoNotDisposeResource
                                         methodDeclaration, false, constructorDeclaration,
                                         propertyDeclaration, false, ref foundeOutOfOwnMethodDeclaration,
                                         out memberContainsDispose);
+                                    if (!hasDisposeCall)
+                                    {
+                                        var a = parent1 as AssignmentExpressionSyntax;
+                                        if (a != null && a.Left != null)
+                                        {
+                                            string variableName = GetLastIdentifierNameSyntax(a.Left)?.Identifier.Text;
+                                            hasDisposeCall = HasDisposeCall(methodDeclaration, constructorDeclaration, propertyDeclaration,
+                                                variableName, false, ref foundeOutOfOwnMethodDeclaration,
+                                                out memberContainsDispose);
+                                        }
+                                    }
                                 }
 
                                 isDisposed = hasDisposeCall;
                             }
+                            else if (invocation.Expression != null && invocation.Expression is ConditionalAccessExpressionSyntax)
+                            {
+
+                            }
 
                             int lineNumber = syntaxTree.GetLineSpan(invocation.Span).StartLinePosition.Line + 1;
+
+                            string className = symbol.ReturnType.ToString();
 
                             if (!isDisposed)
                             {
@@ -487,20 +525,26 @@ namespace FindClassesThatDoNotDisposeResource
                                         out constructorDeclaration, out propertyDeclaration);
                                 }
 
-                                MessageWriter.WriteMessage(
-                                    csvWriter,
-                                    messageKey: "PotentialLeak",
-                                    color: ConsoleColor.Yellow,
-                                    csvStatusKey: "Csv_PotentialLeak",
-                                    project: project.Name,
-                                    filePath: document.FilePath,
-                                    lineNumber: lineNumber,
-                                    className: symbol.ReturnType.ToString(),
-                                    methodSignature: methodSignature
-                                );
+                                if (!validationException.IgnoreException(new KeyResult(project: project.Name, file: document.FilePath,
+                                       lineNumber: lineNumber, @class: className, method: methodSignature),
+                                        invocation, semanticModel, solution) &&
+                                    !validationException.IgnoreExceptionForReturnStatement(symbol, solution))
+                                {
+                                    MessageWriter.WriteMessage(
+                                        csvWriter,
+                                        messageKey: "PotentialLeak",
+                                        color: ConsoleColor.Yellow,
+                                        csvStatusKey: "Csv_PotentialLeak",
+                                        project: project.Name,
+                                        filePath: document.FilePath,
+                                        lineNumber: lineNumber,
+                                        className: className,
+                                        methodSignature: methodSignature
+                                    );
+                                }
                             }
-                            keyResults.Add(new KeyResult(proyecto: project.Name, archivo: document.FilePath,
-                                línea: lineNumber, clase: symbol.ReturnType.ToString(), método: methodSignature));
+                            keyResults.Add(new KeyResult(project: project.Name, file: document.FilePath,
+                                lineNumber: lineNumber, @class: className, method: methodSignature));
                         }
                     }
                 }
@@ -510,8 +554,9 @@ namespace FindClassesThatDoNotDisposeResource
         private static void AnalizeObjectCreationCase(SyntaxNode root, HashSet<string> disposableClasses, SemanticModel semanticModel,
             SyntaxTree syntaxTree, Document document, StreamWriter csvWriter, Project project, HashSet<KeyResult> keyResults)
         {
-            //var objectCreations = root.DescendantNodes().OfType<ObjectCreationExpressionSyntax>()
-            //    .Where(o => disposableClasses.Contains(semanticModel.GetTypeInfo(o).Type?.ToString()));
+            ValidationException.ValidationException validationException =
+                ValidationException.DynamicInstantiator.CreateInstanceFromConfig();
+
             var objectCreations = root.DescendantNodes()
                 .Where(x => x is ObjectCreationExpressionSyntax
                             || x is VariableDeclaratorSyntax
@@ -528,7 +573,7 @@ namespace FindClassesThatDoNotDisposeResource
                     continue;
                 }
 
-                // Checks if objCreation is a variable tha is returned later.
+                // Checks if objCreation is a variable that is returned later.
                 if (IsVariableReturned(objCreation))
                 {
                     continue;
@@ -562,8 +607,11 @@ namespace FindClassesThatDoNotDisposeResource
                     if (!hasDisposeCall)
                     {
                         // project.Name.Trim() == "ComfiarWCF" && document.FilePath.Trim() == "D:\\Source\\APG\\COMFIAR7\\Comfiar7\\ComfiarWCF\\ServiciosWCF\\Aplicacion\\WCFCuit.cs" && lineNumber == 559 && className.Trim() == "System.Data.SqlClient.SqlCommand" && methodSignature.Trim() == "private int ComfiarWCF.ServiciosWCF.Aplicacion.WCFCuit.CantidadComprobantesAutorizados(Contratos.Cuit c, string puntoDeVentaId, string tipoComprobanteId, DateTime? fechaDesde, DateTime? fechaHasta)"
-                        if (!keyResults.Contains(new KeyResult(proyecto: project.Name, archivo: document.FilePath,
-                                línea: lineNumber, clase: className, método: methodSignature)))
+                        if (!keyResults.Contains(new KeyResult(project: project.Name, file: document.FilePath,
+                                lineNumber: lineNumber, @class: className, method: methodSignature)) &&
+                            !validationException.IgnoreException(new KeyResult(project: project.Name, file: document.FilePath,
+                                lineNumber: lineNumber, @class: className, method: methodSignature),
+                                objCreation, semanticModel, project.Solution))
                         {
                             MessageWriter.WriteMessage(
                                     csvWriter,
@@ -577,14 +625,17 @@ namespace FindClassesThatDoNotDisposeResource
                                     methodSignature: methodSignature
                                 );
 
-                            keyResults.Add(new KeyResult(proyecto: project.Name, archivo: document.FilePath,
-                                línea: lineNumber, clase: className, método: methodSignature));
+                            keyResults.Add(new KeyResult(project: project.Name, file: document.FilePath,
+                                lineNumber: lineNumber, @class: className, method: methodSignature));
                         }
                     }
                     else if (isPropertyOrAttribute && foundeOutOfOwnMethodDeclaration)
                     {
-                        if (!keyResults.Contains(new KeyResult(proyecto: project.Name, archivo: document.FilePath,
-                                línea: lineNumber, clase: className, método: methodSignature)))
+                        if (!keyResults.Contains(new KeyResult(project: project.Name, file: document.FilePath,
+                                lineNumber: lineNumber, @class: className, method: methodSignature)) &&
+                            !validationException.IgnoreException(new KeyResult(project: project.Name, 
+                                file: document.FilePath, lineNumber: lineNumber, @class: className, method: methodSignature),
+                                objCreation, semanticModel, project.Solution))
                         {
                             MessageWriter.WriteMessage(
                                 csvWriter,
@@ -600,8 +651,8 @@ namespace FindClassesThatDoNotDisposeResource
                             );
 
 
-                            keyResults.Add(new KeyResult(proyecto: project.Name, archivo: document.FilePath,
-                                línea: lineNumber, clase: className, método: methodSignature));
+                            keyResults.Add(new KeyResult(project: project.Name, file: document.FilePath,
+                                lineNumber: lineNumber, @class: className, method: methodSignature));
                         }
                     }
                 }
@@ -747,6 +798,11 @@ namespace FindClassesThatDoNotDisposeResource
                             variableName = identifierNameSyntax?.Identifier.Text;
                             isPropertyOrAttribute = true;
                         }
+                        else if (symbol is ILocalSymbol)
+                        {
+                            IdentifierNameSyntax identifierNameSyntax = GetLastIdentifierNameSyntax(assignmentExpressionSyntax.Left);
+                            variableName = identifierNameSyntax?.Identifier.Text;
+                        }
                     }
 
                     if (string.IsNullOrEmpty(variableName))
@@ -828,6 +884,12 @@ namespace FindClassesThatDoNotDisposeResource
                 MemberAccessExpressionSyntax memberAccess = expression as MemberAccessExpressionSyntax;
                 return GetLastIdentifierNameSyntax(memberAccess.Name);
             }
+
+            if (expression is ConditionalAccessExpressionSyntax)
+            {
+                ConditionalAccessExpressionSyntax conditionalAccessExpressionSyntax = expression as ConditionalAccessExpressionSyntax;
+                return GetLastIdentifierNameSyntax(conditionalAccessExpressionSyntax.Expression);
+            }
             if (expression is IdentifierNameSyntax)
             {
                 IdentifierNameSyntax identifier = expression as IdentifierNameSyntax;
@@ -889,40 +951,32 @@ namespace FindClassesThatDoNotDisposeResource
             bool hasDisposeCall = false;
             memberContainsDispose = string.Empty;
             InvocationExpressionSyntax invocationExpressionSyntax = null;
+            ConditionalAccessExpressionSyntax conditionalAccessExpressionSyntax = null;
             if (methodDeclaration != null)
             {
-                invocationExpressionSyntax = methodDeclaration.DescendantNodes()
-                    .OfType<InvocationExpressionSyntax>()
-                    .FirstOrDefault(invocation =>
-                    {
-                        var identifier = invocation.Expression as MemberAccessExpressionSyntax;
-                        return identifier?.Name.Identifier.Text == "Dispose"
-                               && identifier.Expression.ToString() == variableName;
-                    });
+                var descendantsNodes = methodDeclaration.DescendantNodes().ToList();
+
+                invocationExpressionSyntax = FindDisposeCallInDescendants(variableName, descendantsNodes,
+                    ref conditionalAccessExpressionSyntax);
+
                 memberContainsDispose = methodDeclaration.Identifier.Text;
             }
             else if (constructorDeclaration != null)
             {
-                invocationExpressionSyntax = constructorDeclaration.DescendantNodes()
-                    .OfType<InvocationExpressionSyntax>()
-                    .FirstOrDefault(invocation =>
-                    {
-                        var identifier = invocation.Expression as MemberAccessExpressionSyntax;
-                        return identifier?.Name.Identifier.Text == "Dispose"
-                               && identifier.Expression.ToString() == variableName;
-                    });
+                var descendantsNodes = constructorDeclaration.DescendantNodes().ToList();
+
+                invocationExpressionSyntax = FindDisposeCallInDescendants(variableName, descendantsNodes,
+                    ref conditionalAccessExpressionSyntax);
+
                 memberContainsDispose = constructorDeclaration.Identifier.Text;
             }
             else if (propertyDeclaration != null)
             {
-                invocationExpressionSyntax = propertyDeclaration.DescendantNodes()
-                    .OfType<InvocationExpressionSyntax>()
-                    .FirstOrDefault(invocation =>
-                    {
-                        var identifier = invocation.Expression as MemberAccessExpressionSyntax;
-                        return identifier?.Name.Identifier.Text == "Dispose"
-                               && identifier.Expression.ToString() == variableName;
-                    });
+                var descendantsNodes = propertyDeclaration.DescendantNodes().ToList();
+
+                invocationExpressionSyntax = FindDisposeCallInDescendants(variableName, descendantsNodes,
+                    ref conditionalAccessExpressionSyntax);
+
                 memberContainsDispose = propertyDeclaration.Identifier.Text;
             }
 
@@ -950,19 +1004,21 @@ namespace FindClassesThatDoNotDisposeResource
                         classDeclaration.DescendantNodes().Where(x => IsSomeTypeOfMethodOrClassDeclaration(x));
                     foreach (var methodDeclarationSyntax in methodsDeclarationsClass)
                     {
-                        invocationExpressionSyntax = methodDeclarationSyntax.DescendantNodes()
-                            .OfType<InvocationExpressionSyntax>()
-                            .FirstOrDefault(invocation =>
-                            {
-                                var identifier = invocation.Expression as MemberAccessExpressionSyntax;
-                                return identifier?.Name.Identifier.Text == "Dispose"
-                                       && identifier.Expression.ToString() == variableName;
-                            });
-                        if (invocationExpressionSyntax != null)
+                        var descendantsNodes = methodDeclarationSyntax.DescendantNodes().ToList();
+
+                        invocationExpressionSyntax = FindDisposeCallInDescendants(variableName, descendantsNodes,
+                            ref conditionalAccessExpressionSyntax);
+
+                        if (invocationExpressionSyntax != null || conditionalAccessExpressionSyntax != null)
                         {
-                            var member = invocationExpressionSyntax.Ancestors().FirstOrDefault(x =>
+                            var member =
+                                invocationExpressionSyntax != null ?
+                                invocationExpressionSyntax.Ancestors().FirstOrDefault(x =>
                                 x is MethodDeclarationSyntax || x is ConstructorDeclarationSyntax ||
-                                x is PropertyDeclarationSyntax || x is LocalFunctionStatementSyntax);
+                                x is PropertyDeclarationSyntax || x is LocalFunctionStatementSyntax) :
+                                conditionalAccessExpressionSyntax.Ancestors().FirstOrDefault(x =>
+                                    x is MethodDeclarationSyntax || x is ConstructorDeclarationSyntax ||
+                                    x is PropertyDeclarationSyntax || x is LocalFunctionStatementSyntax);
                             if (member != null)
                             {
                                 memberContainsDispose = member is MethodDeclarationSyntax
@@ -982,9 +1038,77 @@ namespace FindClassesThatDoNotDisposeResource
                 }
             }
 
-            hasDisposeCall = invocationExpressionSyntax != null;
+            hasDisposeCall = invocationExpressionSyntax != null || conditionalAccessExpressionSyntax != null;
 
             return hasDisposeCall;
+        }
+
+        private static InvocationExpressionSyntax FindDisposeCallInDescendants(string variableName, List<SyntaxNode> descendantsNodes,
+            ref ConditionalAccessExpressionSyntax conditionalAccessExpressionSyntax)
+        {
+            InvocationExpressionSyntax invocationExpressionSyntax;
+            invocationExpressionSyntax = descendantsNodes
+                .OfType<InvocationExpressionSyntax>()
+                .FirstOrDefault(invocation =>
+                {
+                    var identifier = invocation.Expression as MemberAccessExpressionSyntax;
+                    if(identifier != null)
+                    {
+                        return identifier.Name.Identifier.Text == "Dispose"
+                               && identifier.Expression.ToString() == variableName;
+                    }
+                    return false;
+
+                });
+            if (invocationExpressionSyntax == null)
+            {
+                conditionalAccessExpressionSyntax = descendantsNodes?
+                    .OfType<ConditionalAccessExpressionSyntax>()
+                    .FirstOrDefault(invocation =>
+                    {
+                        var identifier = GetLastIdentifierNameSyntax(invocation);
+                        var whenNotNull = invocation.WhenNotNull;
+                        SyntaxToken? identifierToken = null;
+                        if (whenNotNull is MemberAccessExpressionSyntax)
+                        {
+                            MemberAccessExpressionSyntax memberAccess = (MemberAccessExpressionSyntax)whenNotNull;
+                            identifierToken = memberAccess.Name.Identifier;
+                        }
+                        else if (whenNotNull is IdentifierNameSyntax)
+                        {
+                            IdentifierNameSyntax identifierName = (IdentifierNameSyntax)whenNotNull;
+                            identifierToken = identifierName.Identifier;
+                        }
+                        else if (whenNotNull is InvocationExpressionSyntax)
+                        {
+                            InvocationExpressionSyntax invocationExpression = (InvocationExpressionSyntax)whenNotNull;
+                            if (invocationExpression.Expression is MemberAccessExpressionSyntax)
+                            {
+                                MemberAccessExpressionSyntax invocMemberAccess =
+                                    (MemberAccessExpressionSyntax)invocationExpression.Expression;
+                                identifierToken = invocMemberAccess.Name.Identifier;
+                            }
+                            else if (invocationExpression.Expression is MemberBindingExpressionSyntax)
+                            {
+                                MemberBindingExpressionSyntax invocMemberBinding =
+                                    (MemberBindingExpressionSyntax)invocationExpression.Expression;
+                                identifierToken = invocMemberBinding.Name.Identifier;
+                            }
+                            else if (invocationExpression.Expression is IdentifierNameSyntax)
+                            {
+                                IdentifierNameSyntax invocIdentifierName =
+                                    (IdentifierNameSyntax)invocationExpression.Expression;
+                                identifierToken = invocIdentifierName.Identifier;
+                            }
+                        }
+
+                        return identifier?.Identifier.Text == variableName
+                               && identifierToken?.Text == "Dispose";
+
+                    });
+            }
+
+            return invocationExpressionSyntax;
         }
 
         /// <summary>
@@ -1035,7 +1159,7 @@ namespace FindClassesThatDoNotDisposeResource
             out ConstructorDeclarationSyntax constructorDeclarationSyntax,
             out PropertyDeclarationSyntax propertyDeclaration)
         {
-            methodSignature = "N/A";
+            methodSignature = METHOD_SIGNATURE_NOT_FOUNDED;
             methodDeclaration = null;
 
             var eq = EqualsValueClauseSyntax(objCreation, out parent);
@@ -1210,31 +1334,31 @@ namespace FindClassesThatDoNotDisposeResource
         /// <summary>
         /// Get the method signature (with namespace and class name) of the object SyntaxNode.
         /// </summary>
-        /// <param name="objCreation"></param>
+        /// <param name="syntaxNode"></param>
         /// <param name="methodSignature"></param>
         /// <param name="methodDeclaration"></param>
         /// <param name="constructor"></param>
         /// <param name="propertyDeclaration"></param>
-        private static void GetMethodSignature(SyntaxNode objCreation, ref string methodSignature,
+        public static void GetMethodSignature(SyntaxNode syntaxNode, ref string methodSignature,
             out MethodDeclarationSyntax methodDeclaration, out ConstructorDeclarationSyntax constructor,
             out PropertyDeclarationSyntax propertyDeclaration)
         {
             constructor = null;
             propertyDeclaration = null;
-            methodDeclaration = objCreation.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault();
+            methodDeclaration = syntaxNode.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault();
             if (methodDeclaration == null)
             {
-                constructor = objCreation.Ancestors().OfType<ConstructorDeclarationSyntax>().FirstOrDefault();
+                constructor = syntaxNode.Ancestors().OfType<ConstructorDeclarationSyntax>().FirstOrDefault();
                 if (constructor == null)
                 {
-                    propertyDeclaration = objCreation.Ancestors().OfType<PropertyDeclarationSyntax>().FirstOrDefault();
+                    propertyDeclaration = syntaxNode.Ancestors().OfType<PropertyDeclarationSyntax>().FirstOrDefault();
                     if (propertyDeclaration != null)
                     {
                         GetMethodSignature(out methodSignature, propertyDeclaration);
                     }
                     else
                     {
-                        LocalFunctionStatementSyntax localFunctionStatementSyntax = objCreation as LocalFunctionStatementSyntax;
+                        LocalFunctionStatementSyntax localFunctionStatementSyntax = syntaxNode as LocalFunctionStatementSyntax;
                         if (localFunctionStatementSyntax != null)
                         {
                             methodSignature = GetMethodSignature(localFunctionStatementSyntax, methodSignature);
@@ -1332,7 +1456,8 @@ namespace FindClassesThatDoNotDisposeResource
         /// <param name="localFunctionStatementSyntax"></param>
         /// <param name="methodSignature"></param>
         /// <returns></returns>
-        private static string GetMethodSignature(LocalFunctionStatementSyntax localFunctionStatementSyntax, string methodSignature)
+        private static string GetMethodSignature(LocalFunctionStatementSyntax localFunctionStatementSyntax,
+            string methodSignature)
         {
             if (localFunctionStatementSyntax != null)
             {

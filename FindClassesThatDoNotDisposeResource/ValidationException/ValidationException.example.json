@@ -1,0 +1,18 @@
+[
+  {
+    "project": "NombreProyecto",
+    "file": "Ruta\\Al\\Archivo\\ClaseEjemplo.cs",
+    "lineNumber": 10,
+    "class": "NamespaceEjemplo.NombreClase",
+    "method": "public void NombreClase.MetodoEjemplo(string parametro)"
+  },
+  {
+    "project": "NombreProyecto",
+    "file": "Ruta\\Al\\OtroArchivo\\OtraClase.cs",
+    "lineNumber": 25,
+    "class": "NamespaceEjemplo.OtraClase",
+    "method": "public TipoRetorno NamespaceEjemplo.OtraClase.OtroMetodo(int parametro)"
+  }
+]
+
+
